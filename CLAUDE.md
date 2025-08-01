@@ -2,126 +2,143 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+## About the Project
 
-This is a Rust-based security container manager called "cagent" (Caged Agent) that creates hardened systemd-nspawn containers with X11 forwarding, audio support, and configurable security modes. The application is designed to run GUI applications in an isolated environment on Ubuntu/Debian systems.
+Caged Agent (cagent) is a security-hardened container manager that creates isolated systemd-nspawn containers with X11 forwarding and audio support. It provides a secure environment for running GUI applications with configurable security modes.
 
 ## Development Commands
 
-### Build and Test
+### Building and Running
 ```bash
-cargo build                     # Debug build
-cargo build --release          # Optimized release build
-cargo check                     # Fast syntax and type checking
-cargo clippy                    # Linting with helpful suggestions
-cargo fmt                       # Format code
+# Build the project
+cargo build
+
+# Run with default settings (high security mode)
+cargo run
+
+# Run with medium security mode (enables audio)
+SECURITY_MODE=medium cargo run
+
+# Run with verbose command logging
+cargo run -- -v
+
+# Run with debug mode enabled
+DEBUG_MODE=1 cargo run
+
+# Build optimized release
+cargo build --release
 ```
 
-### Run Application
+### Testing
 ```bash
-cargo run                       # Basic execution
+# Run tests
+cargo test
 
-# Command-line options
-cargo run -- -v                # Enable verbose command logging  
-cargo run -- --help            # Show detailed help information
-
-# Environment variables
-SECURITY_MODE=medium cargo run # Options: high, medium, low (default: high)
-DEBUG_MODE=1 cargo run         # Enable debug output with extra info
-HOST_DIR=/path/to/dir cargo run # Specify host directory to bind mount
-
-# Combined usage examples
-SECURITY_MODE=medium DEBUG_MODE=1 cargo run -- -v
-HOST_DIR=/home/user/projects SECURITY_MODE=low cargo run
+# Run tests with verbose output
+cargo test -- --nocapture
 ```
 
-### Clean
+### Code Quality
 ```bash
-cargo clean                     # Remove build artifacts
+# Check code formatting
+cargo fmt --check
+
+# Format code
+cargo fmt
+
+# Run clippy lints
+cargo clippy
+
+# Check for unused dependencies
+cargo machete
 ```
 
 ## Architecture Overview
 
-This is a modular Rust application with a clean separation of concerns across multiple specialized modules. The application implements a security container manager that creates isolated environments for running applications.
+### Module Structure
+- **main.rs**: Entry point, handles CLI arguments and initializes CageManager
+- **container.rs**: Core container management functionality including setup, verification, and execution
+- **config.rs**: Configuration management with security modes and systemd version detection
+- **utils.rs**: Utility functions for command execution, logging, and file operations
+- **constants.rs**: Color constants and system configuration values
+- **help.rs**: Help text and usage information
 
-### Core Modules
+### Key Design Patterns
 
-1. **Config** (src/config.rs) - Configuration and security modes:
-   - **SecurityMode**: High/Medium/Low isolation levels with FromStr parsing
-   - **Config**: Path management, environment variable integration, logging setup
-   - Derives paths from HOME environment, supports command-line flags
+**Security-First Design**: The application implements multiple security modes (High/Medium/Low) with different isolation levels and capabilities.
 
-2. **Container** (src/container.rs) - Main orchestration engine:
-   - **CageManager**: Container lifecycle management, prerequisite checking
-   - References to hybrid container execution and mount management systems
-   - **User Management**: Container user creation and namespace validation
-   - **Container Setup**: Arch Linux bootstrap download with caching
+**systemd Integration**: Uses systemd-nspawn for containerization with version-specific feature detection and compatibility handling.
 
-3. **Utils** (src/utils.rs) - Utility functions and command execution:
-   - **Utils**: Logging, command execution, and error handling
-   - **Command Logging**: All commands logged to timestamped files
-   - **Error Handling**: Centralized error reporting with log file references
+**Resource Management**: Implements caching for downloaded artifacts with integrity verification and automatic cleanup.
 
-4. **Constants** (src/constants.rs) - Application constants:
-   - Color codes for terminal output
-   - Arch Linux mirror and bootstrap file configuration
-   - Container user name constants
+**Logging Strategy**: Dual logging system - verbose terminal output for debugging and persistent file logging for troubleshooting.
 
-5. **Help** (src/help.rs) - Command-line help and usage information
+### Container Lifecycle
+1. **Prerequisites Check**: Validates system requirements, user permissions, and environment
+2. **Dependency Installation**: Installs required packages (systemd-container, curl, xz-utils)
+3. **Container Setup**: Downloads and extracts Arch Linux bootstrap, configures base system
+4. **Security Configuration**: Sets up user accounts, sudo rules, and directory permissions  
+5. **Container Entry**: Launches systemd-nspawn with security options and bind mounts
 
-6. **Main** (src/main.rs) - Application entry point:
-   - Command-line argument parsing
-   - Subcommand routing: remove, status, diagnose
-   - Main container execution flow
+### Security Features
+- **User Isolation**: Runs as non-root with matching host UID/GID
+- **Filesystem Security**: Read-only bind mounts for host directories
+- **Network Isolation**: Configurable network access based on security mode
+- **Resource Limits**: Process and memory limits via systemd cgroups
+- **Audio Sandboxing**: Optional audio support with PulseAudio socket binding
 
-### Application Flow
+## Configuration
 
-The application follows this execution model:
-1. **Initialization**: Config creation, argument parsing, command routing (remove/status/diagnose)
-2. **Prerequisites**: User namespace validation (/etc/subuid, /etc/subgid), system dependency checks
-3. **Container Setup**: Arch Linux bootstrap download with caching, user creation, package installation
-4. **Container Execution**: Main container orchestration through CageManager
+### Environment Variables
+- `SECURITY_MODE`: high/medium/low (default: high)
+- `DEBUG_MODE`: Enable debug output (set to '1')
+- `HOST_DIR`: Host directory to bind mount (default: $HOME)
 
-### Command Line Interface
+### File System Layout
+- `~/.config/cagent/container/`: Container root filesystem
+- `~/.config/cagent/cache/`: Downloaded packages cache with checksums
+- `~/.config/cagent/logs/`: Application log files with timestamps
 
-The application supports several subcommands:
-- **Default**: Run the main container application
-- **remove/rm/clean/cleanup**: Remove container and cleanup resources
-- **status**: Show container status and active mounts
-- **diagnose/diag**: Run mount diagnostics and troubleshooting
+### Security Modes
+- **High**: Maximum isolation, no network, no audio, restricted capabilities
+- **Medium**: Balanced security with audio support and limited network
+- **Low**: Development-friendly with full network access and debugging tools
 
-### Command Execution Architecture
+## Key Implementation Details
 
-Commands are executed through the utilities system (src/utils.rs):
-- **Utils::log()**: Logs messages to timestamped files in ~/.config/cagent/logs/
-- **Utils::log_command()**: Logs all command executions
-- **Utils::error_exit()**: Centralized error handling with log file references
+### systemd Version Compatibility
+The code detects systemd version and adjusts container options accordingly. systemd 254+ uses different resource limit syntax and security options.
 
-### Security Implementation
+### X11 Forwarding
+Implements secure X11 authentication using xauth with temporary files and proper permission handling.
 
-The application implements several security features:
-- **User Namespace Validation**: Checks /etc/subuid and /etc/subgid configuration
-- **Security Modes**: High/Medium/Low security levels (configured via SECURITY_MODE env var)
-- **Path Validation**: All paths derived from HOME environment variable
-- **Restrictive umask**: Sets 0o077 umask for secure file creation
+### Audio System Integration
+Supports both PulseAudio and ALSA with proper device binding and permission setup for medium/low security modes.
 
-## Key Constants and Configuration
+### Cache Management
+Downloads are cached with SHA256 verification, automatic staleness detection, and atomic file operations.
 
-```rust
-const ARCH_MIRROR: &str = "https://mirror.rackspace.com/archlinux";
-const ARCH_BOOTSTRAP_FILE_NAME: &str = "archlinux-bootstrap-x86_64.tar.zst";
-const CONTAINER_USER: &str = "agent";
-```
+### Error Handling
+Comprehensive error handling with user-friendly messages and detailed logging for troubleshooting.
 
 ## Dependencies
 
-The application uses these key Rust crates:
-- **libc**: System calls and C library bindings
-- **nix**: Safe Rust bindings to POSIX APIs (process, user, fs, sched, mount, hostname, signal features)
+- `libc = "0.2"`: Low-level system calls for UID/GID operations and umask setting
 
-## File Structure and Paths
+## Platform Requirements
 
-The application follows this directory structure:
-- **Container**: `~/.config/cagent/container/` - Container root filesystem
-- **Logs**: `~/.config/cagent/logs/` - Timestamped log files
-- **Cache**: `~/.config/cagent/cache/` - Downloaded bootstrap files and cache
+- Ubuntu/Debian host system
+- systemd with systemd-nspawn support  
+- X11 display server
+- sudo privileges for container management
+- Minimum systemd version 240 (version 254+ recommended)
+
+## Container System
+
+The application creates an Arch Linux container with:
+- Base system packages and development tools
+- User account matching host credentials
+- Sudo access for package management only
+- Audio group membership for sound support
+- Temporary workspace with size limits
+- Integrity markers for corruption detection
