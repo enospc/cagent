@@ -42,58 +42,68 @@ cargo clean                     # Remove build artifacts
 
 ## Architecture Overview
 
-This is a single-file Rust application (~1564 lines) with a well-structured monolithic design. The core architecture revolves around three main components working together to provide secure containerization.
+This is a modular Rust application with a clean separation of concerns across multiple specialized modules. The application implements a security container manager that creates isolated environments for running applications.
 
-### Core Components
+### Core Modules
 
-1. **Config** (src/main.rs:105-117) - Configuration management:
-   - Derives paths from HOME environment variable
-   - Handles systemd version detection and compatibility
-   - Manages security mode settings and directory paths
-   - Supports both environment variables and command-line flags
+1. **Config** (src/config.rs) - Configuration and security modes:
+   - **SecurityMode**: High/Medium/Low isolation levels with FromStr parsing
+   - **Config**: Path management, environment variable integration, logging setup
+   - Derives paths from HOME environment, supports command-line flags
 
-2. **SecurityMode** (src/main.rs:118-133) - Security level enumeration:
-   - **High**: Maximum isolation, no network, no audio access
-   - **Medium**: Balanced security with audio support enabled  
-   - **Low**: Relaxed security for development workflows
-   - Implements FromStr for environment variable parsing
+2. **Container** (src/container.rs) - Main orchestration engine:
+   - **CageManager**: Container lifecycle management, prerequisite checking
+   - References to hybrid container execution and mount management systems
+   - **User Management**: Container user creation and namespace validation
+   - **Container Setup**: Arch Linux bootstrap download with caching
 
-3. **CageManager** (src/main.rs:135-1537) - Main orchestration engine:
-   - **Container Lifecycle**: setup_container(), enter_container(), verify_container()
-   - **Security Configuration**: Systemd version-aware security options and resource limits
-   - **External Integration**: X11 forwarding, audio binding, file system mounts
-   - **Command Execution**: Unified logging and execution framework
+3. **Utils** (src/utils.rs) - Utility functions and command execution:
+   - **Utils**: Logging, command execution, and error handling
+   - **Command Logging**: All commands logged to timestamped files
+   - **Error Handling**: Centralized error reporting with log file references
+
+4. **Constants** (src/constants.rs) - Application constants:
+   - Color codes for terminal output
+   - Arch Linux mirror and bootstrap file configuration
+   - Container user name constants
+
+5. **Help** (src/help.rs) - Command-line help and usage information
+
+6. **Main** (src/main.rs) - Application entry point:
+   - Command-line argument parsing
+   - Subcommand routing: remove, status, diagnose
+   - Main container execution flow
 
 ### Application Flow
 
-The application follows a linear execution model:
-1. **Initialization**: Config creation, argument parsing, prerequisite checks
-2. **Container Setup**: Download Arch Linux bootstrap, extract, configure user/permissions  
-3. **Container Entry**: X11 auth setup, bind mounts, systemd-nspawn execution with security options
-4. **Verification**: Container integrity checking before each use
+The application follows this execution model:
+1. **Initialization**: Config creation, argument parsing, command routing (remove/status/diagnose)
+2. **Prerequisites**: User namespace validation (/etc/subuid, /etc/subgid), system dependency checks
+3. **Container Setup**: Arch Linux bootstrap download with caching, user creation, package installation
+4. **Container Execution**: Main container orchestration through CageManager
 
-### Systemd Version Compatibility
+### Command Line Interface
 
-Critical architectural decision: The application detects systemd version and adapts behavior:
-- **systemd 254+**: Uses `--user` flag directly, higher resource limits, minimal security options
-- **Pre-254**: Uses `runuser` wrapper, stricter capabilities, lower resource limits
-- This affects security options, resource limits, and command execution paths
+The application supports several subcommands:
+- **Default**: Run the main container application
+- **remove/rm/clean/cleanup**: Remove container and cleanup resources
+- **status**: Show container status and active mounts
+- **diagnose/diag**: Run mount diagnostics and troubleshooting
 
 ### Command Execution Architecture
 
-All external commands flow through a unified logging and execution system:
-- **log_command()**: Logs all commands to file, conditionally to terminal with verbose mode
-- **run_command()**: Standard execution with error handling 
-- **run_command_with_log()**: Execution with stdout/stderr capture
-- **run_systemd_nspawn()**: Specialized systemd-nspawn execution wrapper
+Commands are executed through the utilities system (src/utils.rs):
+- **Utils::log()**: Logs messages to timestamped files in ~/.config/cagent/logs/
+- **Utils::log_command()**: Logs all command executions
+- **Utils::error_exit()**: Centralized error handling with log file references
 
-### Network Downloads and Caching
+### Security Implementation
 
-The application implements a sophisticated download system:
-- **Checksum Verification**: Downloads SHA256 checksums and verifies all files
-- **Caching Layer**: Local cache in ~/.config/cagent/cache/ with checksum validation
-- **Progress Indicators**: Real-time download progress using curl's --progress-bar
-- **Retry Logic**: Connection timeouts and retry mechanisms for reliability
+The application implements several security features:
+- **User Namespace Validation**: Checks /etc/subuid and /etc/subgid configuration
+- **Security Modes**: High/Medium/Low security levels (configured via SECURITY_MODE env var)
+- **Path Validation**: All paths derived from HOME environment variable
+- **Restrictive umask**: Sets 0o077 umask for secure file creation
 
 ## Key Constants and Configuration
 
@@ -103,18 +113,15 @@ const ARCH_BOOTSTRAP_FILE_NAME: &str = "archlinux-bootstrap-x86_64.tar.zst";
 const CONTAINER_USER: &str = "agent";
 ```
 
-## Progress Indicator System  
+## Dependencies
 
-The application features comprehensive progress feedback:
-- **Emoji-based Visual Indicators**: 🔍 🔄 ✓ ❌ 📦 🔧 👤 🖥️ 🚀 for different operation types
-- **Step Counters**: Multi-step operations show progress like "Installing package (2/3)..."
-- **Real-time Updates**: Uses Command::status() instead of Command::output() for live progress
-- **Failure Feedback**: Clear error indicators when operations fail
+The application uses these key Rust crates:
+- **libc**: System calls and C library bindings
+- **nix**: Safe Rust bindings to POSIX APIs (process, user, fs, sched, mount, hostname, signal features)
 
-## Security Implementation Details
+## File Structure and Paths
 
-- **Path Validation**: All paths are canonicalized and restricted to /home/ directory
-- **Resource Limits**: NPROC, NOFILE, MEMLOCK limits based on systemd version  
-- **Capability Management**: Minimal capabilities based on security mode
-- **User Isolation**: Container user matches host UID/GID for proper file permissions
-- **Audit Trail**: All operations logged to ~/.config/cagent/logs/ with timestamps
+The application follows this directory structure:
+- **Container**: `~/.config/cagent/container/` - Container root filesystem
+- **Logs**: `~/.config/cagent/logs/` - Timestamped log files
+- **Cache**: `~/.config/cagent/cache/` - Downloaded bootstrap files and cache
