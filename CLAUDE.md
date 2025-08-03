@@ -36,6 +36,9 @@ cargo test
 
 # Run tests with verbose output
 cargo test -- --nocapture
+
+# Note: This project currently has minimal test coverage and relies on integration testing
+# through manual container lifecycle verification and system prerequisite checks
 ```
 
 ### Code Quality
@@ -49,7 +52,10 @@ cargo fmt
 # Run clippy lints
 cargo clippy
 
-# Check for unused dependencies
+# Run clippy with all features and strict warnings
+cargo clippy -- -D warnings
+
+# Check for unused dependencies (requires cargo-machete installation)
 cargo machete
 ```
 
@@ -124,6 +130,7 @@ Comprehensive error handling with user-friendly messages and detailed logging fo
 ## Dependencies
 
 - `libc = "0.2"`: Low-level system calls for UID/GID operations and umask setting
+- `chrono = "0.4"`: Time formatting and manipulation for logging timestamps
 
 ## Platform Requirements
 
