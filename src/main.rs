@@ -1,15 +1,15 @@
 use std::env;
 use std::process::exit;
 
-mod constants;
-mod help;
 mod config;
-mod utils;
+mod constants;
 mod container;
+mod help;
+mod utils;
 
 use constants::*;
-use help::show_help;
 use container::CageManager;
+use help::show_help;
 
 fn main() {
     // Set restrictive umask
@@ -27,13 +27,13 @@ fn main() {
     let mut manager = match CageManager::new() {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("{}ERROR: {}{}", RED, e, NC);
+            eprintln!("{RED}ERROR: {e}{NC}");
             exit(1);
         }
     };
 
     if let Err(e) = manager.run() {
-        eprintln!("{}ERROR: {}{}", RED, e, NC);
+        eprintln!("{RED}ERROR: {e}{NC}");
         exit(1);
     }
 }

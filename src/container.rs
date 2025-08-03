@@ -1,9 +1,9 @@
 use std::env;
-use std::fs::{self};
+use std::fs;
 use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Command};
+use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::{Config, SecurityMode};
@@ -19,7 +19,7 @@ impl CageManager {
     pub fn new() -> Result<Self, String> {
         let config = Config::new()?;
         let utils = Utils::new(config.clone());
-        
+
         Ok(CageManager { config, utils })
     }
 
@@ -69,16 +69,15 @@ impl CageManager {
 
         // Check X11
         print!("  Checking X11 session... ");
-        let display = env::var("DISPLAY")
-            .map_err(|_| {
-                println!("❌");
-                "DISPLAY variable not set. Are you running in an X11 session?"
-            })?;
+        let display = env::var("DISPLAY").map_err(|_| {
+            println!("❌");
+            "DISPLAY variable not set. Are you running in an X11 session?"
+        })?;
 
         // Validate DISPLAY format
         if !display.starts_with(':') || !display[1..].chars().all(|c| c.is_numeric() || c == '.') {
             println!("❌");
-            return Err(format!("Invalid DISPLAY format: {}", display));
+            return Err(format!("Invalid DISPLAY format: {display}"));
         }
         println!("✓");
 
@@ -97,16 +96,13 @@ impl CageManager {
             let nproc_limit = self.utils.get_ulimit_nproc();
             if nproc_limit != "unlimited" && nproc_limit.parse::<u32>().unwrap_or(0) < 10000 {
                 println!(
-                    "{}Warning: Your system process limit is low ({}){}", 
-                    YELLOW, nproc_limit, NC
+                    "{YELLOW}Warning: Your system process limit is low ({nproc_limit}){NC}"
                 );
                 println!(
-                    "{}This might cause 'Resource temporarily unavailable' errors{}",
-                    YELLOW, NC
+                    "{YELLOW}This might cause 'Resource temporarily unavailable' errors{NC}"
                 );
                 println!(
-                    "{}Consider increasing it with: ulimit -u 30000{}",
-                    YELLOW, NC
+                    "{YELLOW}Consider increasing it with: ulimit -u 30000{NC}"
                 );
             }
         }
@@ -138,12 +134,17 @@ impl CageManager {
 
             // Install required packages
             for (i, pkg) in packages_to_install.iter().enumerate() {
-                println!("📦 Installing {} ({}/{})...", pkg, i + 1, packages_to_install.len());
+                println!(
+                    "📦 Installing {} ({}/{})...",
+                    pkg,
+                    i + 1,
+                    packages_to_install.len()
+                );
                 self.utils.run_command_with_log(
                     Command::new("sudo").args(&["apt", "install", "-y", pkg]),
-                    &format!("Failed to install {}", pkg),
+                    &format!("Failed to install {pkg}"),
                 )?;
-                println!("✓ {} installed successfully", pkg);
+                println!("✓ {pkg} installed successfully");
             }
         }
 
@@ -151,15 +152,19 @@ impl CageManager {
         println!("🔍 Verifying required commands...");
         let required_commands = ["systemd-nspawn", "curl", "xauth"];
         for (i, cmd) in required_commands.iter().enumerate() {
-            print!("  Checking {} ({}/{})... ", cmd, i + 1, required_commands.len());
+            print!(
+                "  Checking {} ({}/{})... ",
+                cmd,
+                i + 1,
+                required_commands.len()
+            );
             let mut check_cmd = Command::new("which");
             check_cmd.arg(cmd);
             self.utils.log_command(&check_cmd);
             if check_cmd.output().is_err() {
                 println!("❌");
                 return Err(format!(
-                    "Required command '{}' not found after installation",
-                    cmd
+                    "Required command '{cmd}' not found after installation"
                 ));
             }
             println!("✓");
@@ -171,27 +176,34 @@ impl CageManager {
     }
 
     pub fn download_checksums(&self, base_url: &str) -> Result<String, String> {
-        let checksum_url = format!("{}/sha256sums.txt", base_url);
+        let checksum_url = format!("{base_url}/sha256sums.txt");
 
         if self.config.debug_mode {
-            println!("Fetching checksums from: {}", checksum_url);
+            println!("Fetching checksums from: {checksum_url}");
         } else {
             println!("Fetching checksums...");
         }
 
         let mut cmd = Command::new("curl");
-        cmd.args(&["-sSL", "--connect-timeout", "10", "--retry", "2", &checksum_url]);
+        cmd.args(&[
+            "-sSL",
+            "--connect-timeout",
+            "10",
+            "--retry",
+            "2",
+            &checksum_url,
+        ]);
         self.utils.log_command(&cmd);
         let output = cmd
             .output()
-            .map_err(|e| format!("Failed to execute curl for checksums: {}", e))?;
+            .map_err(|e| format!("Failed to execute curl for checksums: {e}"))?;
 
         if !output.status.success() {
             return Err("Failed to download checksums".to_string());
         }
 
         println!("✓ Checksums fetched successfully");
-        String::from_utf8(output.stdout).map_err(|e| format!("Invalid UTF-8 in checksums: {}", e))
+        String::from_utf8(output.stdout).map_err(|e| format!("Invalid UTF-8 in checksums: {e}"))
     }
 
     pub fn get_expected_checksum(&self, checksums: &str, filename: &str) -> Option<String> {
@@ -204,7 +216,7 @@ impl CageManager {
 
     pub fn download_with_cache(&self, url: &str, filename: &str) -> Result<PathBuf, String> {
         let cached_file = self.config.cache_dir.join(filename);
-        let cached_checksum_file = self.config.cache_dir.join(format!("{}.sha256", filename));
+        let cached_checksum_file = self.config.cache_dir.join(format!("{filename}.sha256"));
 
         // Always download latest checksums to detect updates
         let base_url = url.rsplitn(2, '/').nth(1).unwrap_or("");
@@ -213,7 +225,7 @@ impl CageManager {
         // Get expected checksum for our file
         let expected_checksum = self
             .get_expected_checksum(&checksums, filename)
-            .ok_or_else(|| format!("Could not find checksum for {}", filename))?;
+            .ok_or_else(|| format!("Could not find checksum for {filename}"))?;
 
         // Check if we have a cached file
         if cached_file.exists() {
@@ -243,29 +255,34 @@ impl CageManager {
         }
 
         // Download the file
-        println!("Downloading {} from {}...", filename, url);
-        let temp_path = self.config.cache_dir.join(format!("{}.tmp", filename));
+        println!("Downloading {filename} from {url}...");
+        let temp_path = self.config.cache_dir.join(format!("{filename}.tmp"));
 
         let mut cmd = Command::new("curl");
         cmd.args(&[
-            "--connect-timeout", "30",
-            "--retry", "3",
+            "--connect-timeout",
+            "30",
+            "--retry",
+            "3",
             "--location",
             "--progress-bar",
-            "--output", temp_path.to_str().unwrap(),
+            "--output",
+            temp_path.to_str().unwrap(),
             url,
         ]);
-        
+
         self.utils.log_command(&cmd);
-        
+
         // Execute with real-time progress display
-        let status = cmd.status().map_err(|e| format!("Download failed: {}", e))?;
-        
+        let status = cmd
+            .status()
+            .map_err(|e| format!("Download failed: {e}"))?;
+
         if !status.success() {
             return Err("Download failed".to_string());
         }
-        
-        println!("✓ Download completed: {}", filename);
+
+        println!("✓ Download completed: {filename}");
 
         // Verify downloaded file
         println!("Verifying file integrity...");
@@ -274,27 +291,25 @@ impl CageManager {
         if actual_checksum != expected_checksum {
             fs::remove_file(&temp_path).ok();
             return Err(format!(
-                "Checksum verification failed! Expected: {}, Got: {}",
-                expected_checksum, actual_checksum
+                "Checksum verification failed! Expected: {expected_checksum}, Got: {actual_checksum}"
             ));
         }
-        
+
         println!("✓ File integrity verified");
 
         // Move to cache and save checksum
         fs::rename(&temp_path, &cached_file)
-            .map_err(|e| format!("Failed to move file to cache: {}", e))?;
+            .map_err(|e| format!("Failed to move file to cache: {e}"))?;
 
         fs::write(&cached_checksum_file, &expected_checksum)
-            .map_err(|e| format!("Failed to save checksum: {}", e))?;
+            .map_err(|e| format!("Failed to save checksum: {e}"))?;
 
         Ok(cached_file)
     }
 
     pub fn setup_container(&self) -> Result<(), String> {
         println!(
-            "{}Setting up Arch Linux container with security hardening...{}",
-            GREEN, NC
+            "{GREEN}Setting up Arch Linux container with security hardening...{NC}"
         );
         self.utils.log("Starting secure container setup");
 
@@ -321,7 +336,7 @@ impl CageManager {
         }
 
         // Download and extract Arch Linux using cache
-        let download_url = format!("{}/iso/latest/{}", ARCH_MIRROR, ARCH_BOOTSTRAP_FILE_NAME);
+        let download_url = format!("{ARCH_MIRROR}/iso/latest/{ARCH_BOOTSTRAP_FILE_NAME}");
         let arch_file = self.download_with_cache(&download_url, ARCH_BOOTSTRAP_FILE_NAME)?;
 
         println!("📦 Extracting Arch Linux securely...");
@@ -378,7 +393,7 @@ impl CageManager {
         // Configure pacman
         println!("⚙️  Configuring package manager...");
         let mirrorlist = self.config.container_path.join("etc/pacman.d/mirrorlist");
-        let mirror_content = format!("Server = {}/$repo/os/$arch", ARCH_MIRROR);
+        let mirror_content = format!("Server = {ARCH_MIRROR}/$repo/os/$arch");
 
         self.utils.run_command(
             Command::new("bash").args(&[
@@ -430,31 +445,37 @@ impl CageManager {
             "noto-fonts",
             "pulseaudio",
             "alsa-utils",
-            "libpulse", // Audio support
-            "git",      // Required for AUR helpers
+            "libpulse",   // Audio support
+            "git",        // Required for AUR helpers
             "base-devel", // Required for building AUR packages
         ];
 
-        println!("  Installing {} packages: {}", packages.len(), packages.join(", "));
+        println!(
+            "  Installing {} packages: {}",
+            packages.len(),
+            packages.join(", ")
+        );
         let mut pacman_args = vec!["pacman", "-S", "--noconfirm"];
         pacman_args.extend(packages.iter().map(|s| *s));
 
-        self.utils.run_systemd_nspawn(&pacman_args, "Failed to install essential packages")?;
+        self.utils
+            .run_systemd_nspawn(&pacman_args, "Failed to install essential packages")?;
         println!("✓ Essential packages installed");
 
         // Create agent user
         let uid = unsafe { libc::getuid() };
         let gid = unsafe { libc::getgid() };
 
-        println!("👤 Creating user '{}' ({}:{})...", CONTAINER_USER, uid, gid);
+        println!("👤 Creating user '{CONTAINER_USER}' ({uid}:{gid})...");
 
         // Create group
         println!("  Setting up group...");
-        self.utils.run_systemd_nspawn(
-            &["groupadd", "-g", &gid.to_string(), CONTAINER_USER],
-            "Group may already exist",
-        )
-        .ok();
+        self.utils
+            .run_systemd_nspawn(
+                &["groupadd", "-g", &gid.to_string(), CONTAINER_USER],
+                "Group may already exist",
+            )
+            .ok();
 
         // Create user
         println!("  Creating user account...");
@@ -475,124 +496,139 @@ impl CageManager {
 
         // Add user to audio group for sound support
         println!("  Setting up audio permissions...");
-        self.utils.run_systemd_nspawn(
-            &["groupadd", "-r", "audio"],
-            "Audio group may already exist",
-        )
-        .ok();
+        self.utils
+            .run_systemd_nspawn(
+                &["groupadd", "-r", "audio"],
+                "Audio group may already exist",
+            )
+            .ok();
 
         self.utils.run_systemd_nspawn(
             &["usermod", "-a", "-G", "audio", CONTAINER_USER],
             "Failed to add user to audio group",
         )?;
-        println!("✓ User '{}' created successfully", CONTAINER_USER);
+        println!("✓ User '{CONTAINER_USER}' created successfully");
 
         // Install yay AUR helper (only for medium/low security modes)
         if self.config.security_mode != SecurityMode::High {
             println!("📦 Installing yay AUR helper...");
-            
+
             // Set up build directory with proper ownership
             println!("  Setting up build environment...");
             self.utils.run_systemd_nspawn(
-                &["mkdir", "-p", &format!("/home/{}/build", CONTAINER_USER)],
+                &["mkdir", "-p", &format!("/home/{CONTAINER_USER}/build")],
                 "Failed to create build directory",
             )?;
-            
+
             self.utils.run_systemd_nspawn(
                 &[
                     "chown",
-                    &format!("{}:{}", CONTAINER_USER, CONTAINER_USER),
-                    &format!("/home/{}/build", CONTAINER_USER),
+                    &format!("{CONTAINER_USER}:{CONTAINER_USER}"),
+                    &format!("/home/{CONTAINER_USER}/build"),
                 ],
                 "Failed to set build directory ownership",
             )?;
-            
+
             // Configure makepkg for the container user
             println!("  Configuring makepkg for container user...");
             let makepkg_config = format!(
                 "# Makepkg configuration for container\n\
-                 BUILDDIR=/home/{}/build\n\
-                 PKGDEST=/home/{}/build/packages\n\
-                 SRCPKGDEST=/home/{}/build/srcpackages\n\
-                 LOGDEST=/home/{}/build/logs\n\
-                 PACKAGER=\"Container User <container@localhost>\"\n",
-                CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER
+                 BUILDDIR=/home/{CONTAINER_USER}/build\n\
+                 PKGDEST=/home/{CONTAINER_USER}/build/packages\n\
+                 SRCPKGDEST=/home/{CONTAINER_USER}/build/srcpackages\n\
+                 LOGDEST=/home/{CONTAINER_USER}/build/logs\n\
+                 PACKAGER=\"Container User <container@localhost>\"\n"
             );
-            
-            let makepkg_config_path = self.config.container_path
+
+            let makepkg_config_path = self
+                .config
+                .container_path
                 .join("home")
                 .join(CONTAINER_USER)
                 .join(".makepkg.conf");
-            
-            self.utils.write_file_as_root(&makepkg_config_path, &makepkg_config)?;
-            
+
+            self.utils
+                .write_file_as_root(&makepkg_config_path, &makepkg_config)?;
+
             // Set ownership of makepkg config
             self.utils.run_systemd_nspawn(
                 &[
                     "chown",
-                    &format!("{}:{}", CONTAINER_USER, CONTAINER_USER),
-                    &format!("/home/{}/.makepkg.conf", CONTAINER_USER),
+                    &format!("{CONTAINER_USER}:{CONTAINER_USER}"),
+                    &format!("/home/{CONTAINER_USER}/.makepkg.conf"),
                 ],
                 "Failed to set makepkg config ownership",
             )?;
-            
+
             // Install Go dependency first (required for yay)
             println!("  Installing Go compiler for yay build...");
             self.utils.run_systemd_nspawn_with_network(
                 &["pacman", "-S", "--noconfirm", "go"],
                 "Failed to install Go compiler",
             )?;
-            
+
             // Clone yay repository as the user
             println!("  Cloning yay repository...");
             self.utils.run_systemd_nspawn_with_network(
-                &["sudo", "-u", CONTAINER_USER, "bash", "-c", &format!(
-                    "cd /home/{}/build && git clone https://aur.archlinux.org/yay.git",
-                    CONTAINER_USER
-                )],
+                &[
+                    "sudo",
+                    "-u",
+                    CONTAINER_USER,
+                    "bash",
+                    "-c",
+                    &format!(
+                        "cd /home/{CONTAINER_USER}/build && git clone https://aur.archlinux.org/yay.git"
+                    ),
+                ],
                 "Failed to clone yay repository",
             )?;
-            
+
             // Build yay package (without installing)
             println!("  Building yay AUR helper...");
             self.utils.run_systemd_nspawn_with_network(
-                &["sudo", "-u", CONTAINER_USER, "bash", "-c", &format!(
-                    "cd /home/{}/build/yay && makepkg -s --noconfirm",
-                    CONTAINER_USER
-                )],
+                &[
+                    "sudo",
+                    "-u",
+                    CONTAINER_USER,
+                    "bash",
+                    "-c",
+                    &format!(
+                        "cd /home/{CONTAINER_USER}/build/yay && makepkg -s --noconfirm"
+                    ),
+                ],
                 "Failed to build yay",
             )?;
-            
+
             // Find the actual package files generated by makepkg
             println!("  Finding generated package files...");
             let package_files = self.utils.run_systemd_nspawn_with_output(
                 &["bash", "-c", &format!(
-                    "find /home/{}/build/packages -name 'yay-*.pkg.tar.*' -type f 2>/dev/null || find /home/{}/build/yay -name 'yay-*.pkg.tar.*' -type f",
-                    CONTAINER_USER, CONTAINER_USER
+                    "find /home/{CONTAINER_USER}/build/packages -name 'yay-*.pkg.tar.*' -type f 2>/dev/null || find /home/{CONTAINER_USER}/build/yay -name 'yay-*.pkg.tar.*' -type f"
                 )],
                 "Failed to find yay package files",
             )?;
-            
+
             if package_files.trim().is_empty() {
                 return Err("No yay package files found after makepkg build".to_string());
             }
-            
+
             // Install each found package file
             println!("  Installing yay package(s)...");
             for package_file in package_files.lines() {
                 let package_file = package_file.trim();
                 if !package_file.is_empty() {
-                    println!("    Installing: {}", package_file);
+                    println!("    Installing: {package_file}");
                     self.utils.run_systemd_nspawn_with_network(
-                        &["bash", "-c", &format!(
-                            "sudo pacman -U --noconfirm '{}'",
-                            package_file
-                        )],
-                        &format!("Failed to install yay package: {}", package_file),
+                        &[
+                            "bash",
+                            "-c",
+                            &format!("sudo pacman -U --noconfirm '{package_file}'"),
+                        ],
+                        &format!("Failed to install yay package: {package_file}"),
                     )?;
                 }
             }
-            
+
             // Verify yay installation
             println!("  Verifying yay installation...");
             match self.utils.run_systemd_nspawn(
@@ -604,14 +640,14 @@ impl CageManager {
                     println!("❌ yay verification failed, but continuing...");
                 }
             }
-            
+
             // Clean up build directory
             println!("  Cleaning up build files...");
             self.utils.run_systemd_nspawn(
-                &["rm", "-rf", &format!("/home/{}/build", CONTAINER_USER)],
+                &["rm", "-rf", &format!("/home/{CONTAINER_USER}/build")],
                 "Failed to clean up build directory",
             )?;
-            
+
             println!("✓ yay AUR helper installed successfully");
         } else {
             println!("📦 Skipping AUR helper installation (high security mode)");
@@ -647,7 +683,7 @@ impl CageManager {
              {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --asdeps --noconfirm *\n\
              # Allow regular installation with no confirmation\n\
              {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --noconfirm *\n",
-            CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, 
+            CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER,
             CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER,
             CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER
         );
@@ -679,7 +715,8 @@ impl CageManager {
             )?;
         }
 
-        self.utils.write_file_as_root(&sudoers_file, &sudoers_content)?;
+        self.utils
+            .write_file_as_root(&sudoers_file, &sudoers_content)?;
 
         self.utils.run_command(
             Command::new("sudo").args(&["chmod", "440", sudoers_file.to_str().unwrap()]),
@@ -689,7 +726,7 @@ impl CageManager {
 
         // Create user directories
         println!("📁 Setting up user directories...");
-        let user_home = format!("/home/{}", CONTAINER_USER);
+        let user_home = format!("/home/{CONTAINER_USER}");
         let directories = [
             "Documents",
             "Downloads",
@@ -698,11 +735,17 @@ impl CageManager {
             ".config/pulse",
             "work",
         ];
-        
+
         for (i, dir) in directories.iter().enumerate() {
-            println!("  Creating {}/{} ({}/{})...", user_home, dir, i + 1, directories.len());
+            println!(
+                "  Creating {}/{} ({}/{})...",
+                user_home,
+                dir,
+                i + 1,
+                directories.len()
+            );
             self.utils.run_systemd_nspawn(
-                &["mkdir", "-p", &format!("{}/{}", user_home, dir)],
+                &["mkdir", "-p", &format!("{user_home}/{dir}")],
                 "Failed to create user directory",
             )?;
         }
@@ -713,7 +756,7 @@ impl CageManager {
             &[
                 "chown",
                 "-R",
-                &format!("{}:{}", CONTAINER_USER, CONTAINER_USER),
+                &format!("{CONTAINER_USER}:{CONTAINER_USER}"),
                 &user_home,
             ],
             "Failed to set ownership for user home",
@@ -737,10 +780,11 @@ impl CageManager {
                 .as_secs()
         );
         let integrity_file = self.config.container_path.join(".container-integrity");
-        self.utils.write_file_as_root(&integrity_file, &integrity_content)?;
+        self.utils
+            .write_file_as_root(&integrity_file, &integrity_content)?;
         println!("✓ Container integrity marker created");
 
-        println!("{}🎉 Secure container setup complete!{}", GREEN, NC);
+        println!("{GREEN}🎉 Secure container setup complete!{NC}");
         self.utils.log("Container setup completed successfully");
         Ok(())
     }
@@ -767,7 +811,7 @@ impl CageManager {
     }
 
     pub fn run(&mut self) -> Result<(), String> {
-        println!("{}=== Secure Caged Agent Container Manager ==={}", BLUE, NC);
+        println!("{BLUE}=== Secure Caged Agent Container Manager ==={NC}");
         println!(
             "{}Security-hardened container with enhanced isolation{}",
             GREEN, NC
@@ -776,26 +820,26 @@ impl CageManager {
             "{}Security Mode: {:?}{}",
             YELLOW, self.config.security_mode, NC
         );
-        println!("{}Usage: SECURITY_MODE=medium cargo run{}", YELLOW, NC);
+        println!("{YELLOW}Usage: SECURITY_MODE=medium cargo run{NC}");
         println!(
             "{}Note: Audio requires 'medium' or 'low' security mode{}",
             YELLOW, NC
         );
         if self.config.debug_mode {
-            println!("{}Debug Mode: ENABLED{}", YELLOW, NC);
+            println!("{YELLOW}Debug Mode: ENABLED{NC}");
         }
         println!();
 
         // Create log directory
         println!("📁 Creating log directory...");
         fs::create_dir_all(&self.config.log_dir)
-            .map_err(|e| format!("Failed to create log directory: {}", e))?;
+            .map_err(|e| format!("Failed to create log directory: {e}"))?;
         println!("✓ Log directory created");
 
         // Create cache directory
         println!("📁 Creating cache directory...");
         fs::create_dir_all(&self.config.cache_dir)
-            .map_err(|e| format!("Failed to create cache directory: {}", e))?;
+            .map_err(|e| format!("Failed to create cache directory: {e}"))?;
         println!("✓ Cache directory created");
 
         println!("Log file: {}", self.config.log_file.display());
@@ -821,7 +865,7 @@ impl CageManager {
         let container_exists = self.config.container_path.join("etc/os-release").exists();
 
         if container_exists {
-            println!("{}Container already exists. Entering...{}", YELLOW, NC);
+            println!("{YELLOW}Container already exists. Entering...{NC}");
             println!(
                 "{}Note: If audio wasn't working, you may need to recreate the container{}",
                 YELLOW, NC
@@ -837,7 +881,7 @@ impl CageManager {
 
             // Verify container integrity
             if !self.verify_container() {
-                println!("{}Container appears to be corrupted{}", RED, NC);
+                println!("{RED}Container appears to be corrupted{NC}");
                 print!("Would you like to recreate it? (y/N) ");
                 io::stdout().flush().unwrap();
 
@@ -906,7 +950,7 @@ impl CageManager {
         // Export display auth
         println!("🖥️  Setting up X11 forwarding...");
         let display = env::var("DISPLAY").unwrap_or(":0".to_string());
-        println!("  Using display: {}", display);
+        println!("  Using display: {display}");
 
         // Create xauth file
         println!("  Generating X11 authentication...");
@@ -924,7 +968,7 @@ impl CageManager {
         // Set permissions
         println!("  Setting authentication permissions...");
         fs::set_permissions(&temp_xauth, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("Failed to set xauth permissions: {}", e))?;
+            .map_err(|e| format!("Failed to set xauth permissions: {e}"))?;
 
         // Create container xauth file
         println!("  Copying authentication to container...");
@@ -949,7 +993,7 @@ impl CageManager {
         self.utils.run_command(
             Command::new("sudo").args(&[
                 "chown",
-                &format!("{}:{}", uid, gid),
+                &format!("{uid}:{gid}"),
                 container_xauth.to_str().unwrap(),
             ]),
             "Failed to set xauth ownership",
@@ -979,23 +1023,23 @@ impl CageManager {
         self.add_bind_mounts(&mut cmd)?;
 
         // Set environment variables
-        cmd.arg("--setenv").arg(format!("DISPLAY={}", display));
+        cmd.arg("--setenv").arg(format!("DISPLAY={display}"));
         cmd.arg("--setenv")
-            .arg(format!("XAUTHORITY=/home/{}/.Xauthority", CONTAINER_USER));
+            .arg(format!("XAUTHORITY=/home/{CONTAINER_USER}/.Xauthority"));
         cmd.arg("--setenv")
             .arg(format!("SECURITY_MODE={:?}", self.config.security_mode));
         cmd.arg("--setenv")
-            .arg(format!("HOME=/home/{}", CONTAINER_USER));
-        cmd.arg("--setenv").arg(format!("USER={}", CONTAINER_USER));
+            .arg(format!("HOME=/home/{CONTAINER_USER}"));
+        cmd.arg("--setenv").arg(format!("USER={CONTAINER_USER}"));
         cmd.arg("--setenv").arg("SHELL=/bin/bash");
         cmd.arg("--setenv").arg("TERM=xterm-256color");
 
         // Audio environment variables
         let uid = unsafe { libc::getuid() };
         cmd.arg("--setenv")
-            .arg(format!("PULSE_SERVER=/run/user/{}/pulse/native", uid));
+            .arg(format!("PULSE_SERVER=/run/user/{uid}/pulse/native"));
         cmd.arg("--setenv")
-            .arg(format!("PULSE_RUNTIME_PATH=/run/user/{}/pulse", uid));
+            .arg(format!("PULSE_RUNTIME_PATH=/run/user/{uid}/pulse"));
 
         // Create container script
         let container_script = self.create_container_script(&display, &xauth_name);
@@ -1020,20 +1064,20 @@ impl CageManager {
         println!("🚀 Starting secure container...");
         println!("  Security mode: {:?}", self.config.security_mode);
         println!("  Systemd version: {}", self.config.systemd_version);
-        
+
         // Disable monitoring for interactive container
         self.utils.disable_monitoring();
-        
+
         let status = cmd
             .status()
-            .map_err(|e| format!("Failed to execute systemd-nspawn: {}", e))?;
+            .map_err(|e| format!("Failed to execute systemd-nspawn: {e}"))?;
 
         // Cleanup
         fs::remove_file(&temp_xauth).ok();
 
         if status.success() {
-            println!("{}✓ Container exited successfully{}", GREEN, NC);
-            println!("{}Returned to host system{}", YELLOW, NC);
+            println!("{GREEN}✓ Container exited successfully{NC}");
+            println!("{YELLOW}Returned to host system{NC}");
         } else if !status.success() {
             if self.config.systemd_version >= 254 {
                 println!(
@@ -1133,7 +1177,7 @@ impl CageManager {
             // PulseAudio socket
             let pulse_socket = format!("/run/user/{}/pulse", unsafe { libc::getuid() });
             if Path::new(&pulse_socket).exists() {
-                cmd.arg(format!("--bind={}", pulse_socket));
+                cmd.arg(format!("--bind={pulse_socket}"));
                 println!("{}Audio: PulseAudio socket bound{}", GREEN, NC);
             } else {
                 println!(
@@ -1202,13 +1246,12 @@ impl CageManager {
 
         // Work directory
         if self.config.systemd_version >= 254 {
-            cmd.arg(format!("--tmpfs=/home/{}/work:size=2G", CONTAINER_USER));
+            cmd.arg(format!("--tmpfs=/home/{CONTAINER_USER}/work:size=2G"));
         } else {
             let uid = unsafe { libc::getuid() };
             let gid = unsafe { libc::getgid() };
             cmd.arg(format!(
-                "--tmpfs=/home/{}/work:size=1G,mode=700,uid={},gid={}",
-                CONTAINER_USER, uid, gid
+                "--tmpfs=/home/{CONTAINER_USER}/work:size=1G,mode=700,uid={uid},gid={gid}"
             ));
         }
 

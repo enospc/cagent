@@ -16,7 +16,7 @@ impl SecurityMode {
             "high" => Ok(SecurityMode::High),
             "medium" => Ok(SecurityMode::Medium),
             "low" => Ok(SecurityMode::Low),
-            _ => Err(format!("Invalid security mode: {}", s)),
+            _ => Err(format!("Invalid security mode: {s}")),
         }
     }
 }
@@ -52,7 +52,7 @@ impl Config {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let log_file = log_dir.join(format!("log-{}.log", timestamp));
+        let log_file = log_dir.join(format!("log-{timestamp}.log"));
 
         let security_mode = env::var("SECURITY_MODE").unwrap_or_else(|_| "high".to_string());
         let security_mode = SecurityMode::from_str(&security_mode)?;
