@@ -139,7 +139,8 @@ impl Utils {
 
     pub fn error_exit(&self, message: &str) -> ! {
         eprintln!("{RED}ERROR: {message}{NC}");
-        eprintln!("Check log file: {}", self.config.log_file.display());
+        let log_file = self.config.log_file.display();
+        eprintln!("Check log file: {log_file}");
         self.log(&format!("ERROR: {message}"));
         std::process::exit(1);
     }
@@ -405,7 +406,7 @@ impl Utils {
         cmd.arg("--capability=CAP_NET_RAW");
 
         // Allow internet access during setup
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             // For newer systemd, use more permissive settings during setup
             cmd.arg("--rlimit=NPROC=4096");
             cmd.arg("--rlimit=NOFILE=4096");
@@ -435,7 +436,7 @@ impl Utils {
         cmd.arg(self.config.container_path.to_str().unwrap());
 
         // Allow internet access during setup
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             // For newer systemd, use more permissive settings during setup
             cmd.arg("--rlimit=NPROC=4096");
             cmd.arg("--rlimit=NOFILE=4096");

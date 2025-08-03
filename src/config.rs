@@ -19,6 +19,39 @@ impl SecurityMode {
             _ => Err(format!("Invalid security mode: {s}")),
         }
     }
+
+    pub fn allows_network(&self) -> bool {
+        matches!(self, Self::Medium | Self::Low)
+    }
+
+    pub fn allows_audio(&self) -> bool {
+        matches!(self, Self::Medium | Self::Low)
+    }
+
+
+    pub fn nproc_limit(&self) -> u32 {
+        match self {
+            Self::High => crate::constants::HIGH_SECURITY_NPROC_LIMIT,
+            Self::Medium => crate::constants::MEDIUM_SECURITY_NPROC_LIMIT,
+            Self::Low => crate::constants::LOW_SECURITY_NPROC_LIMIT,
+        }
+    }
+
+    pub fn nofile_limit(&self) -> u32 {
+        match self {
+            Self::High => crate::constants::HIGH_SECURITY_NOFILE_LIMIT,
+            Self::Medium => crate::constants::MEDIUM_SECURITY_NOFILE_LIMIT,
+            Self::Low => crate::constants::LOW_SECURITY_NOFILE_LIMIT,
+        }
+    }
+
+    pub fn memlock_mb(&self) -> u32 {
+        match self {
+            Self::High => crate::constants::HIGH_SECURITY_MEMLOCK_MB,
+            Self::Medium => crate::constants::MEDIUM_SECURITY_MEMLOCK_MB,
+            Self::Low => crate::constants::LOW_SECURITY_MEMLOCK_MB,
+        }
+    }
 }
 
 #[derive(Clone)]

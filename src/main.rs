@@ -12,9 +12,9 @@ use container::CageManager;
 use help::show_help;
 
 fn main() {
-    // Set restrictive umask
+    // Set restrictive umask for security
     unsafe {
-        libc::umask(0o077);
+        libc::umask(constants::RESTRICTIVE_UMASK);
     }
 
     // Check for help flags first

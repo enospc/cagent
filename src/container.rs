@@ -92,7 +92,7 @@ impl CageManager {
         ));
 
         // Check system resource limits for systemd 254+
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             let nproc_limit = self.utils.get_ulimit_nproc();
             if nproc_limit != "unlimited" && nproc_limit.parse::<u32>().unwrap_or(0) < 10000 {
                 println!(
@@ -116,8 +116,7 @@ impl CageManager {
         println!("Installing dependencies...");
 
         // Check if any packages need installation
-        let packages = ["systemd-container", "curl", "xz-utils"];
-        let packages_to_install: Vec<&str> = packages
+        let packages_to_install: Vec<&str> = REQUIRED_HOST_PACKAGES
             .iter()
             .filter(|&&pkg| !self.utils.is_package_installed(pkg))
             .copied()
@@ -150,13 +149,12 @@ impl CageManager {
 
         // Verify commands are available
         println!("🔍 Verifying required commands...");
-        let required_commands = ["systemd-nspawn", "curl", "xauth"];
-        for (i, cmd) in required_commands.iter().enumerate() {
+        for (i, cmd) in REQUIRED_HOST_COMMANDS.iter().enumerate() {
             print!(
                 "  Checking {} ({}/{})... ",
                 cmd,
                 i + 1,
-                required_commands.len()
+                REQUIRED_HOST_COMMANDS.len()
             );
             let mut check_cmd = Command::new("which");
             check_cmd.arg(cmd);
@@ -432,31 +430,14 @@ impl CageManager {
 
         // Install essential packages
         println!("📦 Installing essential packages...");
-        let packages = vec![
-            "base",
-            "sudo",
-            "nano",
-            "curl",
-            "xorg-xauth",
-            "mesa",
-            "gtk3",
-            "nss",
-            "ttf-liberation",
-            "noto-fonts",
-            "pulseaudio",
-            "alsa-utils",
-            "libpulse",   // Audio support
-            "git",        // Required for AUR helpers
-            "base-devel", // Required for building AUR packages
-        ];
-
+        
         println!(
             "  Installing {} packages: {}",
-            packages.len(),
-            packages.join(", ")
+            ESSENTIAL_CONTAINER_PACKAGES.len(),
+            ESSENTIAL_CONTAINER_PACKAGES.join(", ")
         );
         let mut pacman_args = vec!["pacman", "-S", "--noconfirm"];
-        pacman_args.extend(packages.iter().map(|s| *s));
+        pacman_args.extend(ESSENTIAL_CONTAINER_PACKAGES.iter().copied());
 
         self.utils
             .run_systemd_nspawn(&pacman_args, "Failed to install essential packages")?;
@@ -660,32 +641,29 @@ impl CageManager {
              Defaults env_reset\n\
              Defaults secure_path=\"/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\"\n\
              # Allow package installation\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S *\n\
              # Allow system updates\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Syu *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Syu *\n\
              # Allow package removal\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -R *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -R *\n\
              # Allow file database updates\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Fy *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Fy *\n\
              # Allow file searches\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -F *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -F *\n\
              # Allow package queries\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Q *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Q *\n\
              # Allow package info queries\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Si *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Si *\n\
              # Allow package file listing\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Ql *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -Ql *\n\
              # Allow installing local packages (needed for AUR)\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -U *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -U *\n\
              # Allow dependency installation (needed for makepkg)\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --asdeps *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --asdeps *\n\
              # Allow dependency installation with confirmation (needed for makepkg)\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --asdeps --noconfirm *\n\
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --asdeps --noconfirm *\n\
              # Allow regular installation with no confirmation\n\
-             {} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --noconfirm *\n",
-            CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER,
-            CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER,
-            CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER
+             {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/pacman -S --noconfirm *\n"
         );
 
         // Add AUR helper permissions for medium/low security modes
@@ -693,14 +671,13 @@ impl CageManager {
             sudoers_content.push_str(&format!(
                 "# AUR helper permissions (medium/low security modes only)\n\
                  # Allow yay to install packages\n\
-                 {} ALL=(ALL) NOPASSWD: /usr/bin/yay -S *\n\
+                 {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/yay -S *\n\
                  # Allow yay to update AUR packages\n\
-                 {} ALL=(ALL) NOPASSWD: /usr/bin/yay -Syu *\n\
+                 {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/yay -Syu *\n\
                  # Allow yay to remove packages\n\
-                 {} ALL=(ALL) NOPASSWD: /usr/bin/yay -R *\n\
+                 {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/yay -R *\n\
                  # Allow yay queries\n\
-                 {} ALL=(ALL) NOPASSWD: /usr/bin/yay -Q *\n",
-                CONTAINER_USER, CONTAINER_USER, CONTAINER_USER, CONTAINER_USER
+                 {CONTAINER_USER} ALL=(ALL) NOPASSWD: /usr/bin/yay -Q *\n"
             ));
         }
 
@@ -812,19 +789,13 @@ impl CageManager {
 
     pub fn run(&mut self) -> Result<(), String> {
         println!("{BLUE}=== Secure Caged Agent Container Manager ==={NC}");
-        println!(
-            "{}Security-hardened container with enhanced isolation{}",
-            GREEN, NC
-        );
+        println!("{GREEN}Security-hardened container with enhanced isolation{NC}");
         println!(
             "{}Security Mode: {:?}{}",
             YELLOW, self.config.security_mode, NC
         );
         println!("{YELLOW}Usage: SECURITY_MODE=medium cargo run{NC}");
-        println!(
-            "{}Note: Audio requires 'medium' or 'low' security mode{}",
-            YELLOW, NC
-        );
+        println!("{YELLOW}Note: Audio requires 'medium' or 'low' security mode{NC}");
         if self.config.debug_mode {
             println!("{YELLOW}Debug Mode: ENABLED{NC}");
         }
@@ -842,7 +813,8 @@ impl CageManager {
             .map_err(|e| format!("Failed to create cache directory: {e}"))?;
         println!("✓ Cache directory created");
 
-        println!("Log file: {}", self.config.log_file.display());
+        let log_file = self.config.log_file.display();
+        println!("Log file: {log_file}");
 
         // Initialize log
         self.utils.log(&format!(
@@ -866,18 +838,9 @@ impl CageManager {
 
         if container_exists {
             println!("{YELLOW}Container already exists. Entering...{NC}");
-            println!(
-                "{}Note: If audio wasn't working, you may need to recreate the container{}",
-                YELLOW, NC
-            );
-            println!(
-                "{}      to install audio packages. Remove it with:{}",
-                YELLOW, NC
-            );
-            println!(
-                "{}      sudo rm -rf ~/.config/cagent/container{}",
-                YELLOW, NC
-            );
+            println!("{YELLOW}Note: If audio wasn't working, you may need to recreate the container{NC}");
+            println!("{YELLOW}      to install audio packages. Remove it with:{NC}");
+            println!("{YELLOW}      sudo rm -rf ~/.config/cagent/container{NC}");
 
             // Verify container integrity
             if !self.verify_container() {
@@ -917,10 +880,7 @@ impl CageManager {
     }
 
     pub fn enter_container(&self) -> Result<(), String> {
-        println!(
-            "{}Entering hardened container as user '{}'...{}",
-            GREEN, CONTAINER_USER, NC
-        );
+        println!("{GREEN}Entering hardened container as user '{CONTAINER_USER}'...{NC}");
         println!(
             "{}Security Mode: {:?}{}",
             YELLOW, self.config.security_mode, NC
@@ -957,10 +917,7 @@ impl CageManager {
         self.utils.run_command(
             Command::new("bash").args(&[
                 "-c",
-                &format!(
-                    "xauth nlist {} | sed -e 's/^..../ffff/' | xauth -f {} nmerge -",
-                    display, temp_xauth
-                ),
+                &format!("xauth nlist {display} | sed -e 's/^..../ffff/' | xauth -f {temp_xauth} nmerge -"),
             ]),
             "Failed to setup X11 auth",
         )?;
@@ -1044,7 +1001,7 @@ impl CageManager {
         // Create container script
         let container_script = self.create_container_script(&display, &xauth_name);
 
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             // For systemd 254+, use --user directly
             cmd.arg("--user").arg(CONTAINER_USER);
             cmd.arg("/bin/bash");
@@ -1063,7 +1020,8 @@ impl CageManager {
         // Execute
         println!("🚀 Starting secure container...");
         println!("  Security mode: {:?}", self.config.security_mode);
-        println!("  Systemd version: {}", self.config.systemd_version);
+        let systemd_version = self.config.systemd_version;
+        println!("  Systemd version: {systemd_version}");
 
         // Disable monitoring for interactive container
         self.utils.disable_monitoring();
@@ -1079,27 +1037,12 @@ impl CageManager {
             println!("{GREEN}✓ Container exited successfully{NC}");
             println!("{YELLOW}Returned to host system{NC}");
         } else if !status.success() {
-            if self.config.systemd_version >= 254 {
-                println!(
-                    "{}Resource limit error detected. Possible solutions:{}",
-                    YELLOW, NC
-                );
-                println!(
-                    "{}1. Increase your user process limit: ulimit -u 30000{}",
-                    YELLOW, NC
-                );
-                println!(
-                    "{}2. Try medium security mode: SECURITY_MODE=medium{}",
-                    YELLOW, NC
-                );
-                println!(
-                    "{}3. Check system resources: free -h && ps aux | wc -l{}",
-                    YELLOW, NC
-                );
-                println!(
-                    "{}4. Restart systemd-logind: sudo systemctl restart systemd-logind{}",
-                    YELLOW, NC
-                );
+            if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
+                println!("{YELLOW}Resource limit error detected. Possible solutions:{NC}");
+                println!("{YELLOW}1. Increase your user process limit: ulimit -u 30000{NC}");
+                println!("{YELLOW}2. Try medium security mode: SECURITY_MODE=medium{NC}");
+                println!("{YELLOW}3. Check system resources: free -h && ps aux | wc -l{NC}");
+                println!("{YELLOW}4. Restart systemd-logind: sudo systemctl restart systemd-logind{NC}");
             }
             return Err(format!(
                 "Failed to enter container (exit code: {:?})",
@@ -1111,7 +1054,7 @@ impl CageManager {
     }
 
     fn add_security_options(&self, cmd: &mut Command) {
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             // For systemd 254+, minimal security options
             cmd.arg("--personality=x86-64");
             cmd.arg("--link-journal=no");
@@ -1125,22 +1068,23 @@ impl CageManager {
         }
 
         // Add version-specific options
-        if self.config.systemd_version < 254 {
+        if self.config.systemd_version < SYSTEMD_NEW_FEATURES_VERSION {
             cmd.arg("--keep-unit");
             cmd.arg("--register=no");
         }
 
-        // Resource limits
-        if self.config.systemd_version >= 254 {
-            // Higher limits for systemd 254+
-            cmd.arg("--rlimit=NPROC=4096");
-            cmd.arg("--rlimit=NOFILE=4096");
-            cmd.arg("--rlimit=MEMLOCK=256M");
+        // Resource limits based on security mode
+        let nproc_limit = self.config.security_mode.nproc_limit();
+        let nofile_limit = self.config.security_mode.nofile_limit();
+        let memlock_mb = self.config.security_mode.memlock_mb();
+        
+        cmd.arg(format!("--rlimit=NPROC={nproc_limit}"));
+        cmd.arg(format!("--rlimit=NOFILE={nofile_limit}"));
+        cmd.arg(format!("--rlimit=MEMLOCK={memlock_mb}M"));
+        
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             cmd.arg("--rlimit=MSGQUEUE=32M");
         } else {
-            cmd.arg("--rlimit=NPROC=512");
-            cmd.arg("--rlimit=NOFILE=1024");
-            cmd.arg("--rlimit=MEMLOCK=64M");
             cmd.arg("--rlimit=MSGQUEUE=8M");
         }
 
@@ -1150,19 +1094,22 @@ impl CageManager {
         // Apply security mode specific options
         match self.config.security_mode {
             SecurityMode::High => {
-                if self.config.systemd_version < 254 {
-                    cmd.arg("--capability=CAP_SETUID,CAP_SETGID");
+                // Maximum isolation - minimal capabilities
+                cmd.arg("--capability=CAP_SETUID,CAP_SETGID");
+                if !self.config.security_mode.allows_network() {
                     cmd.arg("--private-network");
                 }
             }
             SecurityMode::Medium => {
-                if self.config.systemd_version < 254 {
-                    cmd.arg("--capability=CAP_SETUID,CAP_SETGID,CAP_NET_RAW");
-                }
+                // Balanced security with network access
+                cmd.arg("--capability=CAP_SETUID,CAP_SETGID,CAP_NET_RAW");
             }
             SecurityMode::Low => {
-                if self.config.systemd_version < 254 {
-                    cmd.arg("--capability=CAP_SETUID,CAP_SETGID,CAP_NET_RAW,CAP_SYS_PTRACE");
+                // Development-friendly with debugging capabilities
+                cmd.arg("--capability=CAP_SETUID,CAP_SETGID,CAP_NET_RAW,CAP_SYS_PTRACE");
+                // Allow broader access for development
+                if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
+                    cmd.arg("--capability=CAP_SYS_ADMIN");
                 }
             }
         }
@@ -1170,20 +1117,17 @@ impl CageManager {
 
     fn add_bind_mounts(&self, cmd: &mut Command) -> Result<(), String> {
         // X11 socket
-        cmd.arg("--bind-ro=/tmp/.X11-unix");
+        cmd.arg(format!("--bind-ro={X11_SOCKET_PATH}"));
 
         // Audio support - Only for medium/low security modes
-        if self.config.security_mode != SecurityMode::High {
+        if self.config.security_mode.allows_audio() {
             // PulseAudio socket
             let pulse_socket = format!("/run/user/{}/pulse", unsafe { libc::getuid() });
             if Path::new(&pulse_socket).exists() {
                 cmd.arg(format!("--bind={pulse_socket}"));
-                println!("{}Audio: PulseAudio socket bound{}", GREEN, NC);
+                println!("{GREEN}Audio: PulseAudio socket bound{NC}");
             } else {
-                println!(
-                    "{}Warning: PulseAudio socket not found at {}{}",
-                    YELLOW, pulse_socket, NC
-                );
+                println!("{YELLOW}Warning: PulseAudio socket not found at {pulse_socket}{NC}");
             }
 
             // PulseAudio cookie
@@ -1192,31 +1136,25 @@ impl CageManager {
                 env::var("HOME").unwrap_or_default()
             );
             if Path::new(&pulse_cookie).exists() {
-                cmd.arg(format!(
-                    "--bind-ro={}:/home/{}/.config/pulse/cookie",
-                    pulse_cookie, CONTAINER_USER
-                ));
+                cmd.arg(format!("--bind-ro={pulse_cookie}:/home/{CONTAINER_USER}/.config/pulse/cookie"));
             }
 
             // ALSA devices
-            if Path::new("/dev/snd").exists() {
-                cmd.arg("--bind=/dev/snd");
-                println!("{}Audio: ALSA devices bound{}", GREEN, NC);
+            if Path::new(ALSA_DEVICE_PATH).exists() {
+                cmd.arg(format!("--bind={ALSA_DEVICE_PATH}"));
+                println!("{GREEN}Audio: ALSA devices bound{NC}");
             }
 
             // DRI devices (for hardware acceleration and audio)
-            if Path::new("/dev/dri").exists() {
-                cmd.arg("--bind=/dev/dri");
+            if Path::new(DRI_DEVICE_PATH).exists() {
+                cmd.arg(format!("--bind={DRI_DEVICE_PATH}"));
             }
         } else {
-            println!(
-                "{}High security mode: Audio devices not bound{}",
-                YELLOW, NC
-            );
+            println!("{YELLOW}High security mode: Audio devices not bound{NC}");
         }
 
         // Tmpfs mounts
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             cmd.arg("--tmpfs=/tmp:size=500M");
             cmd.arg("--tmpfs=/dev/shm:size=256M");
         } else {
@@ -1245,7 +1183,7 @@ impl CageManager {
         }
 
         // Work directory
-        if self.config.systemd_version >= 254 {
+        if self.config.systemd_version >= SYSTEMD_NEW_FEATURES_VERSION {
             cmd.arg(format!("--tmpfs=/home/{CONTAINER_USER}/work:size=2G"));
         } else {
             let uid = unsafe { libc::getuid() };
