@@ -1,7 +1,7 @@
 use std::env;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use tempfile::Builder;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum SecurityMode {
@@ -47,12 +47,11 @@ impl Config {
         let log_dir = home_path.join(".config/cagent/logs");
         let cache_dir = home_path.join(".config/cagent/cache");
 
-        // Create timestamp for log file
-        let timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        let log_file = log_dir.join(format!("log-{timestamp}.log"));
+        // Create logs directory if it doesn't exist
+        std::fs::create_dir_all(&log_dir).map_err(|e| format!("Failed to create log dir: {e}"))?;
+
+        // Create secure random log file using tempfile
+        let log_file = Self::create_secure_log_file(&log_dir)?;
 
         let security_mode = env::var("SECURITY_MODE").unwrap_or_else(|_| "high".to_string());
         let security_mode = SecurityMode::from_str(&security_mode)?;
@@ -97,5 +96,21 @@ impl Config {
             .next()
             .and_then(|line| line.split_whitespace().find_map(|s| s.parse::<u32>().ok()))
             .unwrap_or(0)
+    }
+
+    fn create_secure_log_file(log_dir: &PathBuf) -> Result<PathBuf, String> {
+        // Use tempfile to create a secure log file with guaranteed uniqueness
+        let temp_file = Builder::new()
+            .prefix("log-")
+            .suffix(".log")
+            .tempfile_in(log_dir)
+            .map_err(|e| format!("Failed to create secure log file: {e}"))?;
+
+        // Persist the tempfile so it won't be deleted when dropped
+        let (_, path) = temp_file
+            .keep()
+            .map_err(|e| format!("Failed to persist log file: {e}"))?;
+
+        Ok(path)
     }
 }
