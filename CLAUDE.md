@@ -37,6 +37,9 @@ cargo test
 # Run tests with verbose output
 cargo test -- --nocapture
 
+# Run specific test module
+cargo test config::tests
+
 # Note: This project currently has minimal test coverage and relies on integration testing
 # through manual container lifecycle verification and system prerequisite checks
 ```
@@ -86,6 +89,11 @@ cargo machete
 4. **Security Configuration**: Sets up user accounts, sudo rules, and directory permissions  
 5. **Container Entry**: Launches systemd-nspawn with security options and bind mounts
 
+### Critical Code Paths
+- **Container initialization**: `CageManager::new()` → `Config::new()` → security mode detection
+- **Container setup flow**: `CageManager::run()` → `check_prerequisites()` → `install_packages()` → `setup_container()` → `enter_container()`
+- **Command execution**: `Utils::run_command()` with logging to `~/.config/cagent/logs/`
+
 ### Security Features
 - **User Isolation**: Runs as non-root with matching host UID/GID
 - **Filesystem Security**: Read-only bind mounts for host directories
@@ -113,7 +121,7 @@ cargo machete
 ## Key Implementation Details
 
 ### systemd Version Compatibility
-The code detects systemd version and adjusts container options accordingly. systemd 254+ uses different resource limit syntax and security options.
+The code detects systemd version and adjusts container options accordingly. systemd 254+ uses different resource limit syntax and security options. Version detection happens in `Config::get_systemd_version()` and affects container launch parameters in `CageManager::enter_container()`.
 
 ### X11 Forwarding
 Implements secure X11 authentication using xauth with temporary files and proper permission handling.
@@ -130,7 +138,8 @@ Comprehensive error handling with user-friendly messages and detailed logging fo
 ## Dependencies
 
 - `libc = "0.2"`: Low-level system calls for UID/GID operations and umask setting
-- `chrono = "0.4"`: Time formatting and manipulation for logging timestamps
+- `chrono = "0.4"`: Time formatting and manipulation for logging timestamps  
+- `tempfile = "3.8"`: Secure temporary file creation for X11 authentication
 
 ## Platform Requirements
 
@@ -149,3 +158,15 @@ The application creates an Arch Linux container with:
 - Audio group membership for sound support
 - Temporary workspace with size limits
 - Integrity markers for corruption detection
+
+## Common Troubleshooting
+
+### Build Issues
+- Ensure Rust toolchain is installed: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`
+- Update dependencies if build fails: `cargo update`
+
+### Runtime Issues  
+- Check logs at `~/.config/cagent/logs/` for detailed error information
+- Verify systemd-nspawn is installed: `sudo apt install systemd-container`
+- For X11 issues, ensure `DISPLAY` variable is set and xauth is available
+- For permission errors, verify user is in sudo group: `groups $USER`
